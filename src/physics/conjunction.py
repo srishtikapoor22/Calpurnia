@@ -137,10 +137,11 @@ class ConjunctionAssessment:
         vel2: np.ndarray,
         cov2: np.ndarray,
         time_seconds: np.ndarray,
-        pc_threshold: float = 1e-4
+        pc_threshold: float = 1e-4,
+        monte_carlo_samples: int = 10000
     ) -> Dict:
         """
-        Complete conjunction assessment for two satellites.
+        Complete conjunction assessment for two satellites with Monte Carlo simulation.
         
         Args:
             name1: Name of satellite 1
@@ -153,6 +154,7 @@ class ConjunctionAssessment:
             cov2: Position covariance of satellite 2 (km²)
             time_seconds: Time array (seconds)
             pc_threshold: Threshold for collision probability alert
+            monte_carlo_samples: Number of Monte Carlo samples for uncertainty quantification
         
         Returns:
             Dictionary with conjunction assessment results
@@ -164,7 +166,15 @@ class ConjunctionAssessment:
         rel_vel = vel1[0] if vel1.ndim > 1 else vel1 - vel2
         pc = self.compute_probability_of_collision(dca, cov1, cov2, rel_vel)
         
-        alert = pc >= pc_threshold
+        # Perform Monte Carlo simulation for uncertainty quantification
+        pc_monte_carlo, collision_samples = self.monte_carlo_collision_probability(
+            pos1, vel1, cov1,
+            pos2, vel2, cov2,
+            time_seconds,
+            n_samples=monte_carlo_samples
+        )
+        
+        alert = pc_monte_carlo >= pc_threshold
         
         return {
             "satellite_1": name1,
@@ -173,10 +183,60 @@ class ConjunctionAssessment:
             "tca_seconds": float(tca),
             "tca_index": int(tca_index),
             "probability_of_collision": float(pc),
+            "probability_of_collision_monte_carlo": float(pc_monte_carlo),
+            "monte_carlo_collision_count": int(collision_samples),
+            "monte_carlo_total_samples": monte_carlo_samples,
             "alert": bool(alert),
             "keep_out_sphere_km": self.keep_out_sphere_radius,
             "inside_keep_out": dca < self.keep_out_sphere_radius,
         }
+    
+    def monte_carlo_collision_probability(
+        self,
+        pos1: np.ndarray,
+        vel1: np.ndarray,
+        cov1: np.ndarray,
+        pos2: np.ndarray,
+        vel2: np.ndarray,
+        cov2: np.ndarray,
+        time_seconds: np.ndarray,
+        n_samples: int = 10000
+    ) -> Tuple[float, int]:
+        """
+        Compute collision probability using Monte Carlo simulation.
+        
+        Args:
+            pos1: Position of satellite 1 (km)
+            vel1: Velocity of satellite 1 (km/s)
+            cov1: Position covariance of satellite 1 (km²)
+            pos2: Position of satellite 2 (km)
+            vel2: Velocity of satellite 2 (km/s)
+            cov2: Position covariance of satellite 2 (km²)
+            time_seconds: Time array (seconds)
+            n_samples: Number of Monte Carlo samples
+        
+        Returns:
+            (probability_of_collision, number_of_collisions)
+        """
+        collision_count = 0
+        
+        # Generate Monte Carlo samples
+        for _ in range(n_samples):
+            # Sample positions from covariance distributions
+            pos1_sample = np.random.multivariate_normal(pos1[0], cov1)
+            pos2_sample = np.random.multivariate_normal(pos2[0], cov2)
+            
+            # Compute DCA for this sample
+            dca_sample, _, _ = self.compute_distance_of_closest_approach(
+                pos1_sample, vel1[0], pos2_sample, vel2[0], time_seconds
+            )
+            
+            # Check if collision occurs (within keep-out sphere)
+            if dca_sample < self.keep_out_sphere_radius:
+                collision_count += 1
+        
+        pc_monte_carlo = collision_count / n_samples
+        return pc_monte_carlo, collision_count
 
 
 def create_default_covariance(sigma_position_m: float = 100.0) -> np.ndarray:

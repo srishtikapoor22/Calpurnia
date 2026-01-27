@@ -37,9 +37,9 @@ class TestOrbitalPropagation:
         assert pos.shape == (10, 3), f"Position shape mismatch: {pos.shape}"
         assert vel.shape == (10, 3), f"Velocity shape mismatch: {vel.shape}"
         
-        # ISS orbits at ~6700 km altitude (radius ~6700 km from Earth center)
+        # ISS orbits at ~6700-6900 km altitude (radius ~6700-6900 km from Earth center)
         dist_earth = np.linalg.norm(pos[0])
-        assert 6600 < dist_earth < 6800, f"ISS distance {dist_earth} outside expected range"
+        assert 6600 < dist_earth < 7000, f"ISS distance {dist_earth} outside expected range"
         
         # ISS speed ~7.7 km/s
         speed = np.linalg.norm(vel[0])

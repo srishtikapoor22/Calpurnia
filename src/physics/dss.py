@@ -123,7 +123,8 @@ class ConjunctionAssessmentDecisionSupport:
             name1, pos1, vel1, cov1,
             name2, pos2, vel2, cov2,
             time_array_seconds,
-            pc_threshold=self.pc_alert_threshold
+            pc_threshold=self.pc_alert_threshold,
+            monte_carlo_samples=10000  # 10k samples for robust Pc estimation
         )
         
         # Build base result
@@ -217,6 +218,16 @@ class ConjunctionAssessmentDecisionSupport:
         sat1 = assessment['satellite_1']['name']
         sat2 = assessment['satellite_2']['name']
         
+        # Use Monte Carlo Pc if available, else fall back to analytical
+        pc_value = ca.get('probability_of_collision_monte_carlo', ca.get('probability_of_collision', 0))
+        mc_info = ""
+        if 'probability_of_collision_monte_carlo' in ca:
+            mc_samples = ca.get('monte_carlo_total_samples', 10000)
+            mc_collisions = ca.get('monte_carlo_collision_count', 0)
+            mc_info = f"\n  Monte Carlo Results (n={mc_samples:,} samples):"
+            mc_info += f"\n    Collision count: {mc_collisions}"
+            mc_info += f"\n    Confidence interval: 95% CI ≈ ±{1.96*np.sqrt(pc_value*(1-pc_value)/mc_samples):.2e}"
+        
         report = f"""
 CONJUNCTION ASSESSMENT REPORT
 {'='*80}
@@ -228,9 +239,9 @@ OBJECT PAIR:
 
 COLLISION RISK SUMMARY:
   Distance of Closest Approach (DCA): {ca['dca_km']:.3f} km
-  Probability of Collision (Pc): {ca['probability_of_collision']:.2e}
+  Probability of Collision (Pc): {pc_value:.2e}
   Inside Keep-Out Sphere ({ca['keep_out_sphere_km']} km): {ca['inside_keep_out']}
-  ALERT STATUS: {'🚨 COLLISION RISK' if ca['alert'] else '✓ Safe'}
+  ALERT STATUS: {'🚨 COLLISION RISK' if ca['alert'] else '✓ Safe'}{mc_info}
 
 ASSESSMENT DETAILS:
   Time of Closest Approach: {ca['tca_seconds']:.1f} seconds from now
@@ -243,7 +254,7 @@ INTERPRETATION:
             report += f"""  
   ⚠️  HIGH RISK CONJUNCTION DETECTED
   
-  The probability of collision ({ca['probability_of_collision']:.2e}) exceeds the 
+  The probability of collision ({pc_value:.2e}) exceeds the 
   threshold of {self.pc_alert_threshold:.2e}. Immediate action recommended.
   
   At Time of Closest Approach ({ca['tca_seconds']/60:.1f} minutes from now):
